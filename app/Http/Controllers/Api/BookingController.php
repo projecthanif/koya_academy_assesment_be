@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Actions\Booking\CreateNewBookingAction;
+use App\Enum\StatusCategory;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ListBookingsRequest;
 use App\Http\Requests\StoreNewBookingRequest;
 use App\Http\Resources\BookingResource;
 use App\Models\Booking;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 
 class BookingController extends Controller
 {
@@ -74,13 +76,26 @@ class BookingController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(Booking $booking, string $id)
+    public function destroy(Booking $booking, string $id): JsonResponse
     {
-        $slot = $booking->find($id);
-        if (! $slot) {
-            return response()->json([
-                'error' => 'slot not found',
-            ], 404);
-        }
+        return DB::transaction(function () use ($booking, $id): JsonResponse {
+            $booking = $booking->newQuery()->lockForUpdate()->find($id);
+
+            if ($booking === null) {
+                return response()->json([
+                    'error' => 'booking not found',
+                ], 404);
+            }
+
+            if ($booking->status === StatusCategory::CANCELLED->value) {
+                return response()->json([
+                    'error' => 'Booking is already cancelled.',
+                ], 409);
+            }
+
+            $booking->update(['status' => StatusCategory::CANCELLED->value]);
+
+            return response()->json(new BookingResource($booking->refresh()));
+        });
     }
 }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Enum\StatusCategory;
 use App\Models\Booking;
 use App\Models\Slot;
 use Illuminate\Support\Facades\RateLimiter;
@@ -146,3 +147,46 @@ it('rejects booking listing limits outside the supported range', function (strin
     bookingRequest($this)->getJson('/api/bookings?email=ada%40example.com&limit='.$limit)
         ->assertBadRequest();
 })->with(['zero' => '0', 'too many' => '51', 'not an integer' => 'abc']);
+
+it('cancels a booking and frees its slot', function () {
+    $slot = Slot::factory()->create();
+    $booking = Booking::create([
+        'slot_id' => $slot->id,
+        'name' => 'Ada Lovelace',
+        'email' => 'ada@example.com',
+        'status' => StatusCategory::CONFIRMED->value,
+    ]);
+
+    $response = bookingRequest($this)->deleteJson('/api/bookings/'.$booking->id);
+
+    $response->assertOk()
+        ->assertJsonPath('id', $booking->id)
+        ->assertJsonPath('slot_id', $slot->id)
+        ->assertJsonPath('status', 'cancelled');
+    $this->assertDatabaseHas('bookings', [
+        'id' => $booking->id,
+        'status' => StatusCategory::CANCELLED->value,
+    ]);
+
+    bookingRequest($this)->postJson('/api/bookings', bookingPayload($slot, 'new@example.com'))
+        ->assertCreated()
+        ->assertJsonPath('booking.status', 'confirmed');
+});
+
+it('rejects cancelling a missing or already cancelled booking', function () {
+    bookingRequest($this)->deleteJson('/api/bookings/999')
+        ->assertNotFound()
+        ->assertJsonPath('error', 'booking not found');
+
+    $slot = Slot::factory()->create();
+    $booking = Booking::create([
+        'slot_id' => $slot->id,
+        'name' => 'Ada Lovelace',
+        'email' => 'ada@example.com',
+        'status' => StatusCategory::CANCELLED->value,
+    ]);
+
+    bookingRequest($this)->deleteJson('/api/bookings/'.$booking->id)
+        ->assertConflict()
+        ->assertJsonPath('error', 'Booking is already cancelled.');
+});
