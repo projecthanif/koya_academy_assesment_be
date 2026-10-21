@@ -12,8 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('bookings', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('slot_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->string('slot_id');
+            $table->foreign('slot_id')->references('id')->on('slots')->cascadeOnDelete();
             $table->string('name');
             $table->string('email');
             $table->enum('status', ['confirmed', 'cancelled']);

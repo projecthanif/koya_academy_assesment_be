@@ -25,7 +25,7 @@ class StoreNewBookingRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'slot_id' => ['required', 'integer'],
+            'slot_id' => ['required', 'string'],
             'name' => ['required', 'string', 'filled'],
             'email' => ['required', 'email', 'filled'],
         ];

@@ -16,7 +16,7 @@ class ResetSlotsRequest extends FormRequest
         return [
             'slots' => ['required', 'array'],
             'slots.*' => ['required', 'array'],
-            'slots.*.id' => ['required', 'integer', 'distinct'],
+            'slots.*.id' => ['required', 'string', 'distinct'],
             'slots.*.provider' => ['required', 'string'],
             'slots.*.start' => ['required', 'date'],
             'slots.*.end' => ['required', 'date'],

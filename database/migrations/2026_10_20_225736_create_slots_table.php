@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('slots', function (Blueprint $table) {
-            $table->id();
+            $table->string('id')->primary();
             $table->string('provider');
             $table->dateTime('start');
             $table->dateTime('end');

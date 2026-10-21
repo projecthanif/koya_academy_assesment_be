@@ -29,6 +29,7 @@ it('creates a confirmed booking and normalizes contact details', function () {
         ->assertJsonPath('booking.status', 'confirmed')
         ->assertJsonPath('booking.name', 'Ada Lovelace')
         ->assertJsonPath('booking.email', 'guest@example.com');
+    expect($response->json('booking.id'))->toBeString()->toMatch('/^[0-9a-f-]{36}$/');
     $this->assertDatabaseHas('bookings', [
         'slot_id' => $slot->id,
         'status' => 'confirmed',
@@ -46,7 +47,7 @@ it('rejects invalid booking input with a bad request', function (array $payload)
 
 it('rejects a missing, started, or already booked slot', function () {
     bookingRequest($this)->postJson('/api/bookings', [
-        'slot_id' => 999,
+        'slot_id' => 'missing-slot',
         'name' => 'Ada',
         'email' => 'missing@example.com',
     ])->assertNotFound();
@@ -91,7 +92,7 @@ it('limits attempts per email and includes retry timing', function () {
 
     foreach (range(1, 5) as $attempt) {
         bookingRequest($this)->postJson('/api/bookings', [
-            'slot_id' => $slot->id + 1000 + $attempt,
+            'slot_id' => 'missing-slot-'.$attempt,
             'name' => 'Ada',
             'email' => $email,
         ])->assertNotFound();
@@ -174,7 +175,7 @@ it('cancels a booking and frees its slot', function () {
 });
 
 it('rejects cancelling a missing or already cancelled booking', function () {
-    bookingRequest($this)->deleteJson('/api/bookings/999')
+    bookingRequest($this)->deleteJson('/api/bookings/missing-booking')
         ->assertNotFound()
         ->assertJsonPath('error', 'booking not found');
 
@@ -203,7 +204,7 @@ it('resets all bookings and replaces slots including past slots', function () {
     $response = bookingRequest($this)->postJson('/api/reset', [
         'slots' => [
             [
-                'id' => 101,
+                'id' => 'slot-101',
                 'provider' => 'Dr Ade',
                 'start' => '2020-12-10T09:00:00Z',
                 'end' => '2020-12-10T09:30:00Z',
@@ -215,7 +216,7 @@ it('resets all bookings and replaces slots including past slots', function () {
     expect(Booking::count())->toBe(0);
     $this->assertDatabaseMissing('slots', ['id' => $existingSlot->id]);
     $this->assertDatabaseHas('slots', [
-        'id' => 101,
+        'id' => 'slot-101',
         'provider' => 'Dr Ade',
         'start' => '2020-12-10 09:00:00',
         'end' => '2020-12-10 09:30:00',

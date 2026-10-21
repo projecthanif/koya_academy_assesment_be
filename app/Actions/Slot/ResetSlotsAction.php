@@ -14,7 +14,7 @@ class ResetSlotsAction
     ) {}
 
     /**
-     * @param  array<int, array{id: int, provider: string, start: string, end: string}>  $slots
+     * @param  array<int, array{id: string, provider: string, start: string, end: string}>  $slots
      */
     public function handle(array $slots): void
     {
