@@ -18,7 +18,9 @@ class SlotFactory extends Factory
     public function definition(): array
     {
         return [
-            //
+            'provider' => fake()->company(),
+            'start' => now()->addHour(),
+            'end' => now()->addHours(2),
         ];
     }
 }

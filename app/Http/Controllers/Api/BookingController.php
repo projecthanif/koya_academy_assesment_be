@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Actions\Booking\CreateNewBookingAction;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreNewBookingRequest;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class BookingController extends Controller
@@ -24,13 +25,14 @@ class BookingController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(StoreNewBookingRequest $request)
+    public function store(StoreNewBookingRequest $request): JsonResponse
     {
         $payload = $request->validated();
 
-        $result = $this->createNewBookingAction->action($payload);
-
-        dd($result);
+        return $this->createNewBookingAction->action(
+            $payload,
+            $request->header('Idempotency-Key'),
+        );
     }
 
     /**

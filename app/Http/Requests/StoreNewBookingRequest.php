@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 
 class StoreNewBookingRequest extends FormRequest
@@ -24,14 +25,28 @@ class StoreNewBookingRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'slot_id' => ['required'],
-            'name' => ['required', 'string'],
-            'email' => ['required', 'email'],
+            'slot_id' => ['required', 'integer'],
+            'name' => ['required', 'string', 'filled'],
+            'email' => ['required', 'email', 'filled'],
         ];
     }
 
-    protected function failedValidation(Validator $validator)
+    protected function prepareForValidation(): void
     {
+        $this->merge([
+            'name' => is_string($this->input('name')) ? trim($this->input('name')) : $this->input('name'),
+            'email' => is_string($this->input('email')) ? strtolower(trim($this->input('email'))) : $this->input('email'),
+        ]);
+    }
+
+    protected function failedValidation(Validator $validator): never
+    {
+        $email = $this->input('email');
+
+        if (is_string($email) && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            RateLimiter::hit('booking:email:'.$email, 60);
+        }
+
         throw (new ValidationException($validator))
             ->errorBag($this->errorBag)
             ->redirectTo($this->getRedirectUrl())
