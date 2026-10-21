@@ -18,4 +18,9 @@ class Slot extends Model
             'end' => 'datetime',
         ];
     }
+
+    public function booking()
+    {
+        return $this->hasOne(Booking::class, 'slot_id');
+    }
 }
