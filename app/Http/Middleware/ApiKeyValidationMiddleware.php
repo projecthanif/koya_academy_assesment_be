@@ -23,7 +23,7 @@ class ApiKeyValidationMiddleware
         if ($apiKey !== $getApiKey) {
             return response()->json([
                 'error' => 'invalid api key',
-            ]);
+            ], 401);
         }
 
         return $next($request);

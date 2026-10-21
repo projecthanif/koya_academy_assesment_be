@@ -3,6 +3,7 @@
 namespace App\Actions\Booking;
 
 use App\Enum\StatusCategory;
+use App\Http\Resources\BookingResource;
 use App\Models\Booking;
 use App\Models\IdempotencyKey;
 use App\Models\Slot;
@@ -96,7 +97,7 @@ class CreateNewBookingAction
                 ]);
 
                 return $this->remember($stored, response()->json([
-                    'booking' => $booking,
+                    'booking' => new BookingResource($booking),
                 ], 201));
             });
         } catch (QueryException $exception) {

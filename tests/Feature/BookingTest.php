@@ -102,3 +102,47 @@ it('limits attempts per email and includes retry timing', function () {
     expect((int) $response->headers->get('Retry-After'))->toBeGreaterThan(0);
     RateLimiter::clear('booking:email:'.$email);
 });
+
+it("lists a person's bookings oldest first with case-insensitive cursor pagination", function () {
+    $slot = Slot::factory()->create();
+    $email = 'ada@example.com';
+
+    foreach ([
+        ['name' => 'First', 'created_at' => '2026-10-20 09:00:00'],
+        ['name' => 'Second', 'created_at' => '2026-10-20 10:00:00'],
+        ['name' => 'Third', 'created_at' => '2026-10-20 11:00:00'],
+    ] as $booking) {
+        Booking::create([
+            'slot_id' => $slot->id,
+            'name' => $booking['name'],
+            'email' => $email,
+            'status' => 'confirmed',
+            'created_at' => $booking['created_at'],
+            'updated_at' => $booking['created_at'],
+        ]);
+        $slot = Slot::factory()->create();
+    }
+
+    $firstPage = bookingRequest($this)->getJson('/api/bookings?email=ADA%40EXAMPLE.COM&limit=2');
+
+    $firstPage->assertOk()
+        ->assertJsonPath('bookings.0.name', 'First')
+        ->assertJsonPath('bookings.1.name', 'Second')
+        ->assertJsonPath('bookings.0.created_at', '2026-10-20T09:00:00.000000Z')
+        ->assertJsonStructure(['bookings', 'next_cursor']);
+
+    $secondPage = bookingRequest($this)->getJson('/api/bookings?'.http_build_query([
+        'email' => 'ada@example.com',
+        'limit' => 2,
+        'cursor' => $firstPage->json('next_cursor'),
+    ]));
+
+    $secondPage->assertOk()
+        ->assertJsonPath('bookings.0.name', 'Third')
+        ->assertJsonPath('next_cursor', null);
+});
+
+it('rejects booking listing limits outside the supported range', function (string $limit) {
+    bookingRequest($this)->getJson('/api/bookings?email=ada%40example.com&limit='.$limit)
+        ->assertBadRequest();
+})->with(['zero' => '0', 'too many' => '51', 'not an integer' => 'abc']);

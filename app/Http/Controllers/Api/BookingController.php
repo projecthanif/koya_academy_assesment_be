@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Actions\Booking\CreateNewBookingAction;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ListBookingsRequest;
 use App\Http\Requests\StoreNewBookingRequest;
+use App\Http\Resources\BookingResource;
+use App\Models\Booking;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 
 class BookingController extends Controller
 {
@@ -17,9 +19,28 @@ class BookingController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(ListBookingsRequest $request): JsonResponse
     {
-        //
+        $validated = $request->validated();
+        $limit = (int) ($validated['limit'] ?? 10);
+
+        $bookings = Booking::query()
+            ->whereRaw('LOWER(email) = ?', [$validated['email']])
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->cursorPaginate(
+                $limit,
+                ['id', 'slot_id', 'name', 'email', 'status', 'created_at'],
+                'cursor',
+                $validated['cursor'] ?? null,
+            );
+
+        return response()->json([
+            'bookings' => collect($bookings->items())
+                ->map(fn (Booking $booking): array => (new BookingResource($booking))->resolve($request))
+                ->values(),
+            'next_cursor' => $bookings->nextCursor()?->encode(),
+        ]);
     }
 
     /**
@@ -38,24 +59,28 @@ class BookingController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(string $id)
+    public function show(Booking $booking, string $id)
     {
-        //
-    }
+        $slot = $booking->find($id);
+        if (! $slot) {
+            return response()->json([
+                'error' => 'slot not found',
+            ], 404);
+        }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
-    {
-        //
+        return response()->json(new BookingResource($slot), 200);
     }
 
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(string $id)
+    public function destroy(Booking $booking, string $id)
     {
-        //
+        $slot = $booking->find($id);
+        if (! $slot) {
+            return response()->json([
+                'error' => 'slot not found',
+            ], 404);
+        }
     }
 }

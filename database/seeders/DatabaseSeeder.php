@@ -25,8 +25,8 @@ class DatabaseSeeder extends Seeder
 
         Slot::factory(10)->create([
             'provider' => fake()->name(),
-            'start' => fake()->dateTime(),
-            'end' => fake()->dateTime(),
+            'start' => fake()->dateTimeBetween('now', '+1 year'),
+            'end' => fake()->dateTimeBetween('now', '+1 year'),
         ]);
     }
 }
