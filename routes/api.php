@@ -6,6 +6,7 @@ use App\Http\Middleware\ApiKeyValidationMiddleware;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(ApiKeyValidationMiddleware::class)->group(function () {
+    Route::post('reset', [SlotController::class, 'reset']);
     Route::get('slots', [SlotController::class, 'index']);
     Route::get('bookings/{id}', [BookingController::class, 'show']);
     Route::get('bookings', [BookingController::class, 'index']);

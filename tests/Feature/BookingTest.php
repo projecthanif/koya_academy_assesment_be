@@ -190,3 +190,34 @@ it('rejects cancelling a missing or already cancelled booking', function () {
         ->assertConflict()
         ->assertJsonPath('error', 'Booking is already cancelled.');
 });
+
+it('resets all bookings and replaces slots including past slots', function () {
+    $existingSlot = Slot::factory()->create();
+    Booking::create([
+        'slot_id' => $existingSlot->id,
+        'name' => 'Existing',
+        'email' => 'existing@example.com',
+        'status' => StatusCategory::CONFIRMED->value,
+    ]);
+
+    $response = bookingRequest($this)->postJson('/api/reset', [
+        'slots' => [
+            [
+                'id' => 101,
+                'provider' => 'Dr Ade',
+                'start' => '2020-12-10T09:00:00Z',
+                'end' => '2020-12-10T09:30:00Z',
+            ],
+        ],
+    ]);
+
+    $response->assertOk()->assertJsonPath('message', 'Done');
+    expect(Booking::count())->toBe(0);
+    $this->assertDatabaseMissing('slots', ['id' => $existingSlot->id]);
+    $this->assertDatabaseHas('slots', [
+        'id' => 101,
+        'provider' => 'Dr Ade',
+        'start' => '2020-12-10 09:00:00',
+        'end' => '2020-12-10 09:30:00',
+    ]);
+});
