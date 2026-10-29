@@ -29,17 +29,14 @@ class SlotController extends Controller
     {
         $provider = $request->query('provider');
 
-        $slotResource = '';
-        $slots = Slot::all();
-
-        if (! empty($provider)) {
-            $slots = $slots->where('provider', $provider);
-        }
-
-        $slotResource = SlotResource::collection($slots);
+        $slots = Slot::query()
+            ->withExists('confirmedBooking')
+            ->when(! empty($provider), fn ($query) => $query->where('provider', $provider))
+            ->orderBy('start')
+            ->get();
 
         return response()->json([
-            'slots' => $slotResource,
+            'slots' => SlotResource::collection($slots),
         ]);
     }
 }

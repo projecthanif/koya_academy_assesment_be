@@ -114,7 +114,7 @@ it("lists a person's bookings oldest first with case-insensitive cursor paginati
         ['name' => 'Second', 'created_at' => '2026-10-20 10:00:00'],
         ['name' => 'Third', 'created_at' => '2026-10-20 11:00:00'],
     ] as $booking) {
-        Booking::create([
+        Booking::forceCreate([
             'slot_id' => $slot->id,
             'name' => $booking['name'],
             'email' => $email,
@@ -221,4 +221,90 @@ it('resets all bookings and replaces slots including past slots', function () {
         'start' => '2020-12-10 09:00:00',
         'end' => '2020-12-10 09:30:00',
     ]);
+});
+
+it('allows a slot to be booked and cancelled more than once', function () {
+    $slot = Slot::factory()->create();
+
+    foreach (['first@example.com', 'second@example.com'] as $email) {
+        $bookingId = bookingRequest($this)->postJson('/api/bookings', bookingPayload($slot, $email))
+            ->assertCreated()
+            ->json('booking.id');
+
+        bookingRequest($this)->deleteJson('/api/bookings/'.$bookingId)
+            ->assertOk()
+            ->assertJsonPath('status', 'cancelled');
+    }
+
+    expect(Booking::where('slot_id', $slot->id)->where('status', 'cancelled')->count())->toBe(2);
+});
+
+it('marks slots as available only when unbooked and in the future', function () {
+    $openSlot = Slot::factory()->create(['start' => now()->addHours(1)]);
+    $bookedSlot = Slot::factory()->create(['start' => now()->addHours(2)]);
+    $pastSlot = Slot::factory()->create(['start' => now()->subHour()]);
+    $cancelledSlot = Slot::factory()->create(['start' => now()->addHours(3)]);
+
+    Booking::create([
+        'slot_id' => $bookedSlot->id,
+        'name' => 'Ada',
+        'email' => 'ada@example.com',
+        'status' => StatusCategory::CONFIRMED->value,
+    ]);
+    Booking::create([
+        'slot_id' => $cancelledSlot->id,
+        'name' => 'Ada',
+        'email' => 'ada@example.com',
+        'status' => StatusCategory::CANCELLED->value,
+    ]);
+
+    $slots = collect(bookingRequest($this)->getJson('/api/slots')->assertOk()->json('slots'))
+        ->pluck('available', 'id');
+
+    expect($slots[$openSlot->id])->toBeTrue()
+        ->and($slots[$bookedSlot->id])->toBeFalse()
+        ->and($slots[$pastSlot->id])->toBeFalse()
+        ->and($slots[$cancelledSlot->id])->toBeTrue();
+});
+
+it('looks up a booking by id', function () {
+    $slot = Slot::factory()->create();
+    $booking = Booking::create([
+        'slot_id' => $slot->id,
+        'name' => 'Ada',
+        'email' => 'ada@example.com',
+        'status' => StatusCategory::CONFIRMED->value,
+    ]);
+
+    bookingRequest($this)->getJson('/api/bookings/'.$booking->id)
+        ->assertOk()
+        ->assertJsonPath('id', $booking->id);
+
+    bookingRequest($this)->getJson('/api/bookings/missing-booking')
+        ->assertNotFound()
+        ->assertJsonPath('error', 'booking not found');
+});
+
+it('limits booking attempts per ip address across different emails', function () {
+    foreach (range(1, 10) as $attempt) {
+        bookingRequest($this)->postJson('/api/bookings', [
+            'slot_id' => 'missing-slot',
+            'name' => 'Spammer',
+            'email' => "spam{$attempt}@example.com",
+        ])->assertNotFound();
+    }
+
+    $response = bookingRequest($this)->postJson('/api/bookings', [
+        'slot_id' => 'missing-slot',
+        'name' => 'Spammer',
+        'email' => 'spam11@example.com',
+    ]);
+
+    $response->assertTooManyRequests()->assertJsonPath('error', 'Too many booking attempts.');
+    expect((int) $response->headers->get('Retry-After'))->toBeGreaterThan(0);
+});
+
+it('rejects requests without a valid api key', function () {
+    $this->getJson('/api/slots')->assertUnauthorized();
+    $this->withHeader('x-api-key', 'wrong-key')->getJson('/api/slots')->assertUnauthorized();
 });

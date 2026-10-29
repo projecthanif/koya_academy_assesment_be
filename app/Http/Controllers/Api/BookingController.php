@@ -63,14 +63,14 @@ class BookingController extends Controller
      */
     public function show(Booking $booking, string $id)
     {
-        $slot = $booking->find($id);
-        if (! $slot) {
+        $booking = $booking->find($id);
+        if (! $booking) {
             return response()->json([
-                'error' => 'slot not found',
+                'error' => 'booking not found',
             ], 404);
         }
 
-        return response()->json(new BookingResource($slot), 200);
+        return response()->json(new BookingResource($booking), 200);
     }
 
     /**

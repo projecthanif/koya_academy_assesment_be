@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Slot;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+use Illuminate\Database\Eloquent\Factories\Sequence;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
@@ -23,10 +24,12 @@ class DatabaseSeeder extends Seeder
         //     'email' => 'test@example.com',
         // ]);
 
-        Slot::factory(10)->create([
-            'provider' => fake()->name(),
-            'start' => fake()->dateTimeBetween('now', '+1 year'),
-            'end' => fake()->dateTimeBetween('now', '+1 year'),
-        ]);
+        Slot::factory(10)
+            ->sequence(fn (Sequence $sequence): array => [
+                'provider' => 'Dr '.fake()->lastName(),
+                'start' => now()->addDays($sequence->index + 1)->setTime(9, 0),
+                'end' => now()->addDays($sequence->index + 1)->setTime(9, 30),
+            ])
+            ->create();
     }
 }
