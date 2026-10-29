@@ -19,7 +19,7 @@ class SlotResource extends JsonResource
             'provider' => $this->provider,
             'start' => $this->start,
             'end' => $this->end,
-            'available' => ! $this->confirmed_booking_exists && $this->start->isFuture(),
+            'available' => ! $this->confirmed_booking_exists,
         ];
     }
 }

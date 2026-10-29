@@ -26,10 +26,10 @@ it('creates a confirmed booking and normalizes contact details', function () {
     $response = bookingRequest($this)->postJson('/api/bookings', bookingPayload($slot));
 
     $response->assertCreated()
-        ->assertJsonPath('booking.status', 'confirmed')
-        ->assertJsonPath('booking.name', 'Ada Lovelace')
-        ->assertJsonPath('booking.email', 'guest@example.com');
-    expect($response->json('booking.id'))->toBeString()->toMatch('/^[0-9a-f-]{36}$/');
+        ->assertJsonPath('status', 'confirmed')
+        ->assertJsonPath('name', 'Ada Lovelace')
+        ->assertJsonPath('email', 'guest@example.com');
+    expect($response->json('id'))->toBeString()->toMatch('/^[0-9a-f-]{36}$/');
     $this->assertDatabaseHas('bookings', [
         'slot_id' => $slot->id,
         'status' => 'confirmed',
@@ -43,7 +43,14 @@ it('rejects invalid booking input with a bad request', function (array $payload)
     'missing slot' => [['name' => 'Ada', 'email' => 'ada@example.com']],
     'empty name' => [['slot_id' => 1, 'name' => '   ', 'email' => 'ada@example.com']],
     'invalid email' => [['slot_id' => 1, 'name' => 'Ada', 'email' => 'not-an-email']],
+    'email without a domain dot' => [['slot_id' => 1, 'name' => 'Ada', 'email' => 'ada@localhost']],
 ]);
+
+it('shapes validation errors as a single error message', function () {
+    bookingRequest($this)->postJson('/api/bookings', ['name' => 'Ada', 'email' => 'ada@example.com'])
+        ->assertBadRequest()
+        ->assertExactJson(['error' => 'The slot id field is required.']);
+});
 
 it('rejects a missing, started, or already booked slot', function () {
     bookingRequest($this)->postJson('/api/bookings', [
@@ -78,7 +85,7 @@ it('replays an idempotent response and rejects a changed body', function () {
         ->postJson('/api/bookings', $payload);
 
     $first->assertCreated();
-    $second->assertCreated()->assertJsonPath('booking.id', $first->json('booking.id'));
+    $second->assertCreated()->assertJsonPath('id', $first->json('id'));
     expect(Booking::count())->toBe(1);
 
     bookingRequest($this)->withHeader('Idempotency-Key', 'booking-123')
@@ -171,7 +178,7 @@ it('cancels a booking and frees its slot', function () {
 
     bookingRequest($this)->postJson('/api/bookings', bookingPayload($slot, 'new@example.com'))
         ->assertCreated()
-        ->assertJsonPath('booking.status', 'confirmed');
+        ->assertJsonPath('status', 'confirmed');
 });
 
 it('rejects cancelling a missing or already cancelled booking', function () {
@@ -229,7 +236,7 @@ it('allows a slot to be booked and cancelled more than once', function () {
     foreach (['first@example.com', 'second@example.com'] as $email) {
         $bookingId = bookingRequest($this)->postJson('/api/bookings', bookingPayload($slot, $email))
             ->assertCreated()
-            ->json('booking.id');
+            ->json('id');
 
         bookingRequest($this)->deleteJson('/api/bookings/'.$bookingId)
             ->assertOk()
@@ -239,7 +246,7 @@ it('allows a slot to be booked and cancelled more than once', function () {
     expect(Booking::where('slot_id', $slot->id)->where('status', 'cancelled')->count())->toBe(2);
 });
 
-it('marks slots as available only when unbooked and in the future', function () {
+it('marks slots as available unless they have a confirmed booking', function () {
     $openSlot = Slot::factory()->create(['start' => now()->addHours(1)]);
     $bookedSlot = Slot::factory()->create(['start' => now()->addHours(2)]);
     $pastSlot = Slot::factory()->create(['start' => now()->subHour()]);
@@ -263,7 +270,7 @@ it('marks slots as available only when unbooked and in the future', function () 
 
     expect($slots[$openSlot->id])->toBeTrue()
         ->and($slots[$bookedSlot->id])->toBeFalse()
-        ->and($slots[$pastSlot->id])->toBeFalse()
+        ->and($slots[$pastSlot->id])->toBeTrue()
         ->and($slots[$cancelledSlot->id])->toBeTrue();
 });
 
@@ -285,23 +292,77 @@ it('looks up a booking by id', function () {
         ->assertJsonPath('error', 'booking not found');
 });
 
-it('limits booking attempts per ip address across different emails', function () {
-    foreach (range(1, 10) as $attempt) {
+it('does not limit booking attempts across different emails', function () {
+    foreach (range(1, 11) as $attempt) {
         bookingRequest($this)->postJson('/api/bookings', [
             'slot_id' => 'missing-slot',
-            'name' => 'Spammer',
-            'email' => "spam{$attempt}@example.com",
+            'name' => 'Ada',
+            'email' => "guest{$attempt}@example.com",
         ])->assertNotFound();
     }
+});
 
-    $response = bookingRequest($this)->postJson('/api/bookings', [
-        'slot_id' => 'missing-slot',
-        'name' => 'Spammer',
-        'email' => 'spam11@example.com',
-    ]);
+it('returns too many requests on the sixth attempt even when the body is invalid', function () {
+    $email = 'invalid-sixth@example.com';
 
-    $response->assertTooManyRequests()->assertJsonPath('error', 'Too many booking attempts.');
-    expect((int) $response->headers->get('Retry-After'))->toBeGreaterThan(0);
+    foreach (range(1, 5) as $attempt) {
+        bookingRequest($this)->postJson('/api/bookings', ['slot_id' => 'missing-slot', 'name' => 'Ada', 'email' => $email])
+            ->assertNotFound();
+    }
+
+    bookingRequest($this)->postJson('/api/bookings', ['slot_id' => 'missing-slot', 'name' => '', 'email' => $email])
+        ->assertTooManyRequests()
+        ->assertHeader('Retry-After');
+    RateLimiter::clear('booking:email:'.$email);
+});
+
+it('does not count idempotent replays toward the email limit', function () {
+    $slot = Slot::factory()->create();
+    $payload = bookingPayload($slot, 'replays@example.com');
+
+    foreach (range(1, 8) as $attempt) {
+        bookingRequest($this)->withHeader('Idempotency-Key', 'replay-key')
+            ->postJson('/api/bookings', $payload)
+            ->assertCreated();
+    }
+    RateLimiter::clear('booking:email:replays@example.com');
+});
+
+it('accepts an empty slot list on reset', function () {
+    Slot::factory()->create();
+
+    bookingRequest($this)->postJson('/api/reset', ['slots' => []])->assertOk();
+
+    expect(Slot::count())->toBe(0);
+});
+
+it('stores reset slot times in utc', function () {
+    bookingRequest($this)->postJson('/api/reset', ['slots' => [[
+        'id' => 'offset-slot',
+        'provider' => 'Dr Ade',
+        'start' => '2026-12-10T10:00:00+01:00',
+        'end' => '2026-12-10T10:30:00+01:00',
+    ]]])->assertOk();
+
+    bookingRequest($this)->getJson('/api/slots')
+        ->assertJsonPath('slots.0.start', '2026-12-10T09:00:00.000000Z')
+        ->assertJsonPath('slots.0.end', '2026-12-10T09:30:00.000000Z');
+});
+
+it('forgets idempotency keys and attempt counters on reset', function () {
+    $slot = ['id' => 'reset-slot', 'provider' => 'Dr Ade', 'start' => now()->addDay()->toIso8601String(), 'end' => now()->addDay()->addMinutes(30)->toIso8601String()];
+    $payload = ['slot_id' => 'reset-slot', 'name' => 'Ada', 'email' => 'reset@example.com'];
+
+    bookingRequest($this)->postJson('/api/reset', ['slots' => [$slot]])->assertOk();
+    $first = bookingRequest($this)->postJson('/api/bookings', $payload, ['Idempotency-Key' => 'reused-key'])->assertCreated();
+    foreach (range(1, 4) as $attempt) {
+        bookingRequest($this)->withoutHeader('Idempotency-Key')->postJson('/api/bookings', $payload)->assertConflict();
+    }
+
+    bookingRequest($this)->postJson('/api/reset', ['slots' => [$slot]])->assertOk();
+    $second = bookingRequest($this)->postJson('/api/bookings', $payload, ['Idempotency-Key' => 'reused-key'])->assertCreated();
+
+    expect($second->json('id'))->not->toBe($first->json('id'));
 });
 
 it('rejects requests without a valid api key', function () {

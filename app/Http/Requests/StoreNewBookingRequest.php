@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 
@@ -27,7 +28,7 @@ class StoreNewBookingRequest extends FormRequest
         return [
             'slot_id' => ['required', 'string'],
             'name' => ['required', 'string', 'filled'],
-            'email' => ['required', 'email', 'filled'],
+            'email' => ['required', 'email:filter', 'filled'],
         ];
     }
 
@@ -44,7 +45,15 @@ class StoreNewBookingRequest extends FormRequest
         $email = $this->input('email');
 
         if (is_string($email) && filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            RateLimiter::hit('booking:email:'.$email, 60);
+            $rateLimitKey = 'booking:email:'.$email;
+
+            if (RateLimiter::tooManyAttempts($rateLimitKey, 5)) {
+                throw new HttpResponseException(response()->json([
+                    'error' => 'Too many booking attempts.',
+                ], 429)->header('Retry-After', (string) max(1, RateLimiter::availableIn($rateLimitKey))));
+            }
+
+            RateLimiter::hit($rateLimitKey, 60);
         }
 
         throw (new ValidationException($validator))

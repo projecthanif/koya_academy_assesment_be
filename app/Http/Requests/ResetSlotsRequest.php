@@ -14,7 +14,7 @@ class ResetSlotsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'slots' => ['required', 'array'],
+            'slots' => ['present', 'array'],
             'slots.*' => ['required', 'array'],
             'slots.*.id' => ['required', 'string', 'distinct'],
             'slots.*.provider' => ['required', 'string'],

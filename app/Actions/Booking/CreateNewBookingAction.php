@@ -36,34 +36,36 @@ class CreateNewBookingAction
             }
         }
 
-        $rateLimitKey = 'booking:email:'.$bookingDetails['email'];
-        if (RateLimiter::tooManyAttempts($rateLimitKey, 5)) {
-            return response()->json([
-                'error' => 'Too many booking attempts.',
-            ], 429)->header('Retry-After', (string) max(1, RateLimiter::availableIn($rateLimitKey)));
-        }
-
-        RateLimiter::hit($rateLimitKey, 60);
-
         try {
             return DB::transaction(function () use ($bookingDetails, $idempotencyKey, $requestHash): JsonResponse {
-                $stored = null;
+                $hasIdempotencyKey = $idempotencyKey !== null && $idempotencyKey !== '';
 
-                if ($idempotencyKey !== null && $idempotencyKey !== '') {
+                if ($hasIdempotencyKey) {
                     $stored = $this->idempotencyKey
                         ->where('key', $idempotencyKey)
                         ->lockForUpdate()
                         ->first();
 
-                    if ($stored === null) {
-                        $stored = $this->idempotencyKey->create([
-                            'key' => $idempotencyKey,
-                            'request_hash' => $requestHash,
-                        ]);
-                    } else {
+                    if ($stored !== null) {
                         return $this->replayOrReject($stored, $requestHash);
                     }
                 }
+
+                $rateLimitKey = 'booking:email:'.$bookingDetails['email'];
+                if (RateLimiter::tooManyAttempts($rateLimitKey, 5)) {
+                    return response()->json([
+                        'error' => 'Too many booking attempts.',
+                    ], 429)->header('Retry-After', (string) max(1, RateLimiter::availableIn($rateLimitKey)));
+                }
+
+                RateLimiter::hit($rateLimitKey, 60);
+
+                $stored = $hasIdempotencyKey
+                    ? $this->idempotencyKey->create([
+                        'key' => $idempotencyKey,
+                        'request_hash' => $requestHash,
+                    ])
+                    : null;
 
                 $slot = $this->slot->whereKey($bookingDetails['slot_id'])->lockForUpdate()->first();
                 if ($slot === null) {
@@ -96,9 +98,7 @@ class CreateNewBookingAction
                     'status' => StatusCategory::CONFIRMED->value,
                 ]);
 
-                return $this->remember($stored, response()->json([
-                    'booking' => new BookingResource($booking),
-                ], 201));
+                return $this->remember($stored, response()->json(new BookingResource($booking), 201));
             });
         } catch (QueryException $exception) {
             if ($exception->getCode() !== '23000') {
